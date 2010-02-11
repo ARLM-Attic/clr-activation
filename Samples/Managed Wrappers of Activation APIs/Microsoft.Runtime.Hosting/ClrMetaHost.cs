@@ -51,9 +51,14 @@ namespace Microsoft.Runtime.Hosting {
         /// <param name="enumUnknown"></param>
         /// <returns></returns>
         static IEnumerable<ClrRuntimeInfo> EnumerateRuntimesFromEnumUnknown(IEnumUnknown enumUnknown) {
+            //clone and reset the IEnumUnknown to give the right enumerable semantics
+            IEnumUnknown cloned;
+            enumUnknown.Clone(out cloned);
+            cloned.Reset();
+
             object[] objs = new object[1];
             int fetched;
-            while (0 == enumUnknown.Next(1, objs, out fetched)) {
+            while (0 == cloned.Next(1, objs, out fetched)) {
                 Debug.Assert(fetched == 1, "fetch == 1");
                 yield return new ClrRuntimeInfo((IClrRuntimeInfo)objs[0]);
             }

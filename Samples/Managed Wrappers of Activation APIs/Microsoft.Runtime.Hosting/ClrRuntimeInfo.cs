@@ -8,12 +8,41 @@ using Microsoft.Runtime.Hosting.Interop;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using Microsoft.Win32.SafeHandles;
+using System.Security;
+using System.Runtime.ConstrainedExecution;
 
 namespace Microsoft.Runtime.Hosting {
     /// <summary>
     /// Managed abstraction of the functionality provided by ICLRRuntimeInfo.
     /// </summary>
     public class ClrRuntimeInfo {
+
+        /// <summary>
+        /// SafeHandle for loaded libraries (does FreeLibrary on release)
+        /// </summary>
+        sealed class SafeLibraryHandle : SafeHandleZeroOrMinusOneIsInvalid {
+
+            /// <summary>
+            /// Creates a SafeLibraryHandle over a raw handle
+            /// </summary>
+            /// <param name="handle"></param>
+            public SafeLibraryHandle(IntPtr handle)
+                : base(true) {
+                this.handle = handle;
+            }
+
+            /// <summary>
+            /// Frees the underlying handle
+            /// </summary>
+            /// <returns></returns>
+            protected override bool ReleaseHandle() {
+                return FreeLibrary(handle);
+            }
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            private static extern bool FreeLibrary(IntPtr hModule);
+        }
+
         IClrRuntimeInfo _RuntimeInfo;
 
         /// <summary>
@@ -75,8 +104,8 @@ namespace Microsoft.Runtime.Hosting {
         /// <summary>
         /// Loads a library that is part of this runtime's installation
         /// </summary>
-        public SafeFileHandle LoadLibrary(string dllName) {
-            return new SafeFileHandle(_RuntimeInfo.LoadLibrary(dllName), true);
+        public SafeHandle LoadLibrary(string dllName) {
+            return new SafeLibraryHandle(_RuntimeInfo.LoadLibrary(dllName));
         }
 
         /// <summary>
