@@ -43,7 +43,29 @@ namespace Microsoft.Runtime.Hosting {
             private static extern bool FreeLibrary(IntPtr hModule);
         }
 
+        /// <summary>
+        /// Since these interfaces don't tolerate thread apartment boundaries well, we'll keep them
+        /// ThreadStatic and "rehydrate" them on demand on other threads.
+        /// </summary>
+        [ThreadStatic]
         IClrRuntimeInfo _RuntimeInfo;
+
+        /// <summary>
+        /// Ensured access for the underlying runtime info instance
+        /// </summary>
+        IClrRuntimeInfo RuntimeInfo {
+            get {
+                if (_RuntimeInfo == null) {
+                    _RuntimeInfo = ClrMetaHost.GetRuntimeInternal(_VersionString);
+                }
+                return _RuntimeInfo;
+            }
+        }
+
+        /// <summary>
+        /// The version string.  This is used to rehydrate info interfaces on other threads
+        /// </summary>
+        string _VersionString;
 
         /// <summary>
         /// Constructor that wraps an ICLRRuntimeInfo (used internally)
@@ -53,6 +75,8 @@ namespace Microsoft.Runtime.Hosting {
                 throw new ArgumentNullException("info");
             }
             _RuntimeInfo = info;
+            //store the version string to re-hydrate the info on other threads
+            _VersionString = VersionString;
         }
 
         /// <summary>
@@ -63,7 +87,7 @@ namespace Microsoft.Runtime.Hosting {
                 //TODO: caching?
                 var directoryBuffer = new BufferData();
                 BufferData.DoBufferAction(
-                    () => _RuntimeInfo.GetRuntimeDirectory(directoryBuffer, ref directoryBuffer.Length),
+                    () => RuntimeInfo.GetRuntimeDirectory(directoryBuffer, ref directoryBuffer.Length),
                     directoryBuffer);
                 return directoryBuffer.ToString();
             }
@@ -77,7 +101,7 @@ namespace Microsoft.Runtime.Hosting {
                 //TODO: caching?
                 var versionBuffer = new BufferData();
                 BufferData.DoBufferAction(
-                    () => _RuntimeInfo.GetVersionString(versionBuffer, ref versionBuffer.Length),
+                    () => RuntimeInfo.GetVersionString(versionBuffer, ref versionBuffer.Length),
                     versionBuffer);
                 return versionBuffer.ToString();
             }
@@ -98,14 +122,14 @@ namespace Microsoft.Runtime.Hosting {
         /// <param name="process"></param>
         /// <returns></returns>
         public bool IsLoadedInProcess(Process process) {
-            return _RuntimeInfo.IsLoaded(process.Handle);
+            return RuntimeInfo.IsLoaded(process.Handle);
         }
 
         /// <summary>
         /// Loads a library that is part of this runtime's installation
         /// </summary>
         public SafeHandle LoadLibrary(string dllName) {
-            return new SafeLibraryHandle(_RuntimeInfo.LoadLibrary(dllName));
+            return new SafeLibraryHandle(RuntimeInfo.LoadLibrary(dllName));
         }
 
         /// <summary>
@@ -115,7 +139,7 @@ namespace Microsoft.Runtime.Hosting {
         /// <returns></returns>
         public string LoadErrorString(int resourceId) {
             var errorStringBuffer = new BufferData();
-            BufferData.DoBufferAction(()=>_RuntimeInfo.LoadErrorString(resourceId, errorStringBuffer, ref errorStringBuffer.Length),
+            BufferData.DoBufferAction(() => RuntimeInfo.LoadErrorString(resourceId, errorStringBuffer, ref errorStringBuffer.Length),
                 errorStringBuffer);
             return errorStringBuffer.ToString();
         }
@@ -126,7 +150,7 @@ namespace Microsoft.Runtime.Hosting {
         /// <typeparam name="TInterface">The interface type to be returned.  This must be an RCW interface</typeparam>
         /// <param name="clsid">The CLSID to be created</param>
         public TInterface GetInterface<TInterface>(Guid clsid) {
-            return (TInterface)_RuntimeInfo.GetInterface(clsid, typeof(TInterface).GUID);
+            return (TInterface)RuntimeInfo.GetInterface(clsid, typeof(TInterface).GUID);
         }
 
         /// <summary>
@@ -139,7 +163,7 @@ namespace Microsoft.Runtime.Hosting {
             if (!typeof(Delegate).IsAssignableFrom(typeof(TDelegate))) {
                 throw new ArgumentException("TDelegate is not a delegate type");
             }
-            var ptr = _RuntimeInfo.GetProcAddress(name);
+            var ptr = RuntimeInfo.GetProcAddress(name);
             //TODO: better way to handle the cast?
             return (TDelegate)(object)Marshal.GetDelegateForFunctionPointer(ptr, typeof(TDelegate));
         }
@@ -148,7 +172,7 @@ namespace Microsoft.Runtime.Hosting {
         /// Indicates whether this runtime is loadable into the current process
         /// </summary>
         public bool IsLoadable {
-            get { return _RuntimeInfo.IsLoadable(); }
+            get { return RuntimeInfo.IsLoadable(); }
         }
 
         /// <summary>
@@ -157,7 +181,7 @@ namespace Microsoft.Runtime.Hosting {
         /// <param name="startupFlags">The startup flags to apply</param>
         /// <param name="hostConfigFile">The host configuration file to apply (default null)</param>
         public void SetDefaultStartupFlags(StartupFlags startupFlags = StartupFlags.None, string hostConfigFile = null) {
-            _RuntimeInfo.SetDefaultStartupFlags(startupFlags, hostConfigFile);
+            RuntimeInfo.SetDefaultStartupFlags(startupFlags, hostConfigFile);
         }
 
         /// <summary>
@@ -166,7 +190,7 @@ namespace Microsoft.Runtime.Hosting {
         public StartupFlags GetDefaultStartupFlags(out string hostConfigFile) {
             StartupFlags startupFlags = 0;
             var hostConfigBuffer = new BufferData();
-            BufferData.DoBufferAction(() => _RuntimeInfo.GetDefaultStartupFlags(out startupFlags, hostConfigBuffer, ref hostConfigBuffer.Length),
+            BufferData.DoBufferAction(() => RuntimeInfo.GetDefaultStartupFlags(out startupFlags, hostConfigBuffer, ref hostConfigBuffer.Length),
                 hostConfigBuffer);
             hostConfigFile = hostConfigBuffer.ToString();
             return startupFlags;

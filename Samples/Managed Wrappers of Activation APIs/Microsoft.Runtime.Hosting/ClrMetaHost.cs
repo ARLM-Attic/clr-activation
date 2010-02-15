@@ -16,17 +16,27 @@ namespace Microsoft.Runtime.Hosting {
     /// </summary>
     public static class ClrMetaHost {
 
-        static IClrMetaHost _MetaHost = HostingInteropHelper.GetClrMetaHost<IClrMetaHost>();
+        [ThreadStatic]
+        static IClrMetaHost _MetaHost;
+        static IClrMetaHost MetaHost {
+            get {
+                if (_MetaHost == null) {
+                    _MetaHost = HostingInteropHelper.GetClrMetaHost<IClrMetaHost>();
+                }
+                return _MetaHost;
+            }
+        }
 
         //ordering of initializers matters
-        static ClrRuntimeInfo _CurrentRuntime = GetRuntime(RuntimeEnvironment.GetSystemVersion());
+        [ThreadStatic]
+        static ClrRuntimeInfo _CurrentRuntime;
 
         /// <summary>
         /// An enumeration of the installed runtimes
         /// </summary>
         public static IEnumerable<ClrRuntimeInfo> InstalledRuntimes {
             get {
-                return EnumerateRuntimesFromEnumUnknown(_MetaHost.EnumerateInstalledRuntimes());
+                return EnumerateRuntimesFromEnumUnknown(() => MetaHost.EnumerateInstalledRuntimes());
             }
         }
 
@@ -35,7 +45,7 @@ namespace Microsoft.Runtime.Hosting {
         /// </summary>
         /// <param name="process">The process to inspect</param>
         public static IEnumerable<ClrRuntimeInfo> GetLoadedRuntimes(Process process) {
-            return EnumerateRuntimesFromEnumUnknown(_MetaHost.EnumerateLoadedRuntimes(process.Handle));
+            return EnumerateRuntimesFromEnumUnknown(() => MetaHost.EnumerateLoadedRuntimes(process.Handle));
         }
 
         /// <summary>
@@ -48,17 +58,15 @@ namespace Microsoft.Runtime.Hosting {
         /// <summary>
         /// Internal helper to enumerate the contents of an IEnumUnknown that contains IClrRuntimeInfo
         /// </summary>
-        /// <param name="enumUnknown"></param>
+        /// <param name="enumUnknownFunc"></param>
         /// <returns></returns>
-        static IEnumerable<ClrRuntimeInfo> EnumerateRuntimesFromEnumUnknown(IEnumUnknown enumUnknown) {
+        static IEnumerable<ClrRuntimeInfo> EnumerateRuntimesFromEnumUnknown(Func<IEnumUnknown> enumUnknownFunc) {
             //clone and reset the IEnumUnknown to give the right enumerable semantics
-            IEnumUnknown cloned;
-            enumUnknown.Clone(out cloned);
-            cloned.Reset();
+            IEnumUnknown enumUnknown = enumUnknownFunc();
 
             object[] objs = new object[1];
             int fetched;
-            while (0 == cloned.Next(1, objs, out fetched)) {
+            while (0 == enumUnknown.Next(1, objs, out fetched)) {
                 Debug.Assert(fetched == 1, "fetch == 1");
                 yield return new ClrRuntimeInfo((IClrRuntimeInfo)objs[0]);
             }
@@ -71,7 +79,7 @@ namespace Microsoft.Runtime.Hosting {
         /// <returns></returns>
         public static string GetRuntimeVersionFromAssembly(string path) {
             var versionBuffer = new BufferData();
-            BufferData.DoBufferAction(() => _MetaHost.GetVersionFromFile(path, versionBuffer, ref versionBuffer.Length),
+            BufferData.DoBufferAction(() => MetaHost.GetVersionFromFile(path, versionBuffer, ref versionBuffer.Length),
                 versionBuffer);
             return versionBuffer.ToString();
         }
@@ -82,15 +90,22 @@ namespace Microsoft.Runtime.Hosting {
         /// </summary>
         public static ClrRuntimeInfo CurrentRuntime {
             get {
+                if (_CurrentRuntime == null) {
+                    _CurrentRuntime = GetRuntime(RuntimeEnvironment.GetSystemVersion());
+                }
                 return _CurrentRuntime;
             }
+        }
+
+        internal static IClrRuntimeInfo GetRuntimeInternal(string version) {
+            return (IClrRuntimeInfo)MetaHost.GetRuntime(version, typeof(IClrRuntimeInfo).GUID);
         }
 
         /// <summary>
         /// Gets the <see cref="ClrRuntimeInfo"/> corresponding to a particular version string.
         /// </summary>
         public static ClrRuntimeInfo GetRuntime(string version) {
-            return new ClrRuntimeInfo((IClrRuntimeInfo)_MetaHost.GetRuntime(version, typeof(IClrRuntimeInfo).GUID));
+            return new ClrRuntimeInfo(GetRuntimeInternal(version));
         }
 
         /// <summary>
@@ -99,7 +114,7 @@ namespace Microsoft.Runtime.Hosting {
         /// </summary>
         /// <returns></returns>
         public static ClrRuntimeInfo GetLegacyRuntime() {
-            var info = (IClrRuntimeInfo)_MetaHost.QueryLegacyV2RuntimeBinding(typeof(IClrRuntimeInfo).GUID);
+            var info = (IClrRuntimeInfo)MetaHost.QueryLegacyV2RuntimeBinding(typeof(IClrRuntimeInfo).GUID);
             return info == null ? null : new ClrRuntimeInfo(info);
         }
 
@@ -107,7 +122,7 @@ namespace Microsoft.Runtime.Hosting {
         /// Exits the process with the given exit code
         /// </summary>
         public static void ExitProcess(int exitCode) {
-            _MetaHost.ExitProcess(exitCode);
+            MetaHost.ExitProcess(exitCode);
         }
     }
 }

@@ -13,7 +13,17 @@ namespace Microsoft.Runtime.Hosting {
     /// Managed abstraction of the functionality provided by ICLRMetaHostPolicy.
     /// </summary>
     public static class ClrMetaHostPolicy {
-        static IClrMetaHostPolicy _MetaHostPolicy = HostingInteropHelper.GetClrMetaHostPolicy<IClrMetaHostPolicy>();
+        [ThreadStatic]
+        static IClrMetaHostPolicy _MetaHostPolicy = null;
+        static IClrMetaHostPolicy MetaHostPolicy {
+            get {
+                if (_MetaHostPolicy == null) {
+                    _MetaHostPolicy = HostingInteropHelper.GetClrMetaHostPolicy<IClrMetaHostPolicy>();
+                }
+                return _MetaHostPolicy;
+            }
+        }
+
 
         /// <summary>
         /// Returns the results of runtime selection policy given a set of "version artifacts".
@@ -36,7 +46,7 @@ namespace Microsoft.Runtime.Hosting {
             var streamPosition = configStream.Position;
             using (var wrapper = new StreamWrapper(configStream, ownsStream: false)) {
                 BufferData.DoBufferAction(() =>
-                        _MetaHostPolicy.GetRequestedRuntime(
+                        MetaHostPolicy.GetRequestedRuntime(
                             policyFlags,
                             binaryPath,
                             wrapper,
